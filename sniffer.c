@@ -165,7 +165,7 @@ void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *pa
 
     /* construct the packet object */
     FILE *fp;
-    fp = fopen("galgal.txt", "a");
+    fp = fopen("211696521_.txt", "a");
     if (fp == NULL) {
         printf("Error opening file!\n");
         exit(1);
