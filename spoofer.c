@@ -9,41 +9,56 @@
 
 #define BUF_SIZE 1024
 
+/**
+ *This code takes two command line arguments: the IP address of the fake sender and the IP address of the intended recipient.
+ *It creates a raw socket and sets the `IP_HDRINCL` option to include the IP header in the packet.
+ *It then constructs both the IP header and the ICMP header and calculates the checksums for each.
+ *Finally, it combines the headers into a single buffer and sends the packet using the `sendto` function.
+ *To spoof other protocols, you will need to replace the `IPPROTO_ICMP` constant with the appropriate protocol number and replace the `struct icmphdr` type
+ */
+
 // Function to calculate the checksum for an input buffer
-unsigned short checksum(unsigned short *buf, int len) {
+unsigned short checksum(unsigned short *buf, int len)
+{
     unsigned long sum = 0;
 
-    while (len > 1) {
+    while (len > 1)
+    {
         sum += *buf++;
         len -= 2;
     }
 
-    if (len == 1) {
-        sum += *(unsigned char *) buf;
+    if (len == 1)
+    {
+        sum += *(unsigned char *)buf;
     }
 
     sum = (sum >> 16) + (sum & 0xffff);
     sum += (sum >> 16);
 
-    return (unsigned short) (~sum);
+    return (unsigned short)(~sum);
 }
 
-int main(int argc, char *argv[]) {
-    if (argc != 3) {
+int main(int argc, char *argv[])
+{
+    if (argc != 3)
+    {
         fprintf(stderr, "Usage: %s <src_ip> <dst_ip>\n", argv[0]);
         return 1;
     }
 
     // Create a raw socket
     int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (sockfd < 0) {
+    if (sockfd < 0)
+    {
         perror("Error creating socket");
         return 1;
     }
 
     // Set the IP_HDRINCL option to include the IP header
     int optval = 1;
-    if (setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL, &optval, sizeof(optval)) < 0) {
+    if (setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL, &optval, sizeof(optval)) < 0)
+    {
         perror("Error setting IP_HDRINCL option");
         return 1;
     }
@@ -63,10 +78,10 @@ int main(int argc, char *argv[]) {
     ip_hdr.saddr = inet_addr(argv[1]);
     ip_hdr.daddr = inet_addr(argv[2]);
 
-// Calculate the checksum for the IP header
-    ip_hdr.check = checksum((unsigned short *) &ip_hdr, sizeof(ip_hdr));
+    // Calculate the checksum for the IP header
+    ip_hdr.check = checksum((unsigned short *)&ip_hdr, sizeof(ip_hdr));
 
-// Create the ICMP header
+    // Create the ICMP header
     struct icmphdr icmp_hdr;
     memset(&icmp_hdr, 0, sizeof(icmp_hdr));
     icmp_hdr.type = ICMP_ECHO;
@@ -75,10 +90,10 @@ int main(int argc, char *argv[]) {
     icmp_hdr.un.echo.sequence = 0;
     icmp_hdr.checksum = 0;
 
-// Calculate the checksum for the ICMP header
-    icmp_hdr.checksum = checksum((unsigned short *) &icmp_hdr, sizeof(icmp_hdr));
+    // Calculate the checksum for the ICMP header
+    icmp_hdr.checksum = checksum((unsigned short *)&icmp_hdr, sizeof(icmp_hdr));
 
-// Combine the IP and ICMP headers and send the packet
+    // Combine the IP and ICMP headers and send the packet
     char buf[BUF_SIZE];
     memcpy(buf, &ip_hdr, sizeof(ip_hdr));
     memcpy(buf + sizeof(ip_hdr), &icmp_hdr, sizeof(icmp_hdr));
@@ -86,24 +101,17 @@ int main(int argc, char *argv[]) {
     memset(&dst_addr, 0, sizeof(dst_addr));
     dst_addr.sin_family = AF_INET;
     dst_addr.sin_addr.s_addr = ip_hdr.daddr;
-    if (sendto(sockfd, buf, sizeof(ip_hdr) + sizeof(icmp_hdr), 0, (struct sockaddr *) &dst_addr, sizeof(dst_addr)) <
-        0) {
+    if (sendto(sockfd, buf, sizeof(ip_hdr) + sizeof(icmp_hdr), 0, (struct sockaddr *)&dst_addr, sizeof(dst_addr)) <
+        0)
+    {
         perror("Error sending packet");
         return 1;
     }
 
     printf("Packet sent\n");
 
-// Close the socket
+    // Close the socket
     close(sockfd);
 
     return 0;
 }
-
-/**
-*This code takes two command line arguments: the IP address of the fake sender and the IP address of the intended recipient.
-*It creates a raw socket and sets the `IP_HDRINCL` option to include the IP header in the packet.
-*It then constructs both the IP header and the ICMP header and calculates the checksums for each.
-*Finally, it combines the headers into a single buffer and sends the packet using the `sendto` function.
-*To spoof other protocols, you will need to replace the `IPPROTO_ICMP` constant with the appropriate protocol number and replace the `struct icmphdr` type
-*/

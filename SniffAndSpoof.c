@@ -166,16 +166,19 @@ void SendSpoofedEchoReply(struct iphdr *iph, struct icmphdr *icmph)
     close(sockSend);
 }
 
-unsigned short calculate_checksum(unsigned short *paddress, int len) {
+unsigned short calculate_checksum(unsigned short *paddress, int len)
+{
     int sum = 0;
     unsigned short *w = paddress;
     unsigned short answer = 0;
 
-    for (; len > 1; len -= 2) {
+    for (; len > 1; len -= 2)
+    {
         sum += *w++;
     }
-    if (len == 1) {
-        *((unsigned char *) &answer) = *((unsigned char *) w);
+    if (len == 1)
+    {
+        *((unsigned char *)&answer) = *((unsigned char *)w);
         sum += answer;
     }
     sum = (sum >> 16) + (sum & 0xffff);
