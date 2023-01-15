@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
         int bytesReceived = recvfrom(sockIn, buf, MAX_BUF_LEN, 0, (struct sockaddr *)&senderAddr, &senderLen);
         if (bytesReceived < 0)
         {
-            perror("Error receiving datagram on port P");
+            // add back carry outs from top 16 bits to low 16 bitsperror("Error receiving datagram on port P");
             exit(1);
         }
 

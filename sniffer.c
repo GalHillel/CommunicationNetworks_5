@@ -26,65 +26,79 @@ int sockRaw, sockIcmp;
 FILE *file;
 int i, j, tcpCount = 0, icmpCount = 0;
 
-int main()
+int main(int argc, char *argv[])
 {
     int sAddrSize, dataSize;
     struct sockaddr sockAddr;
-
     unsigned char *buffer = (unsigned char *)malloc(65536);
-
     file = fopen("211696521_211696521.txt", "w");
     if (file == NULL)
         printf("Unable to create file");
     printf("Starting...\n");
 
-    // Create a raw socket for TCP
-    sockRaw = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-    if (sockRaw < 0)
+    // check command line argument
+    if (argc != 2)
     {
-        printf("TCP Socket Error\n");
+        printf("Error: Invalid number of arguments\n");
         return 1;
     }
 
-    // Create a raw socket for ICMP
-    sockIcmp = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (sockIcmp < 0)
+    if (strcmp(argv[1], "TCP") == 0)
     {
-        printf("ICMP Socket Error\n");
+        // Create a raw socket for TCP
+        sockRaw = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+        if (sockRaw < 0)
+        {
+            printf("TCP Socket Error\n");
+            return 1;
+        }
+
+        while (true)
+        {
+            sAddrSize = sizeof sockAddr;
+            dataSize = recvfrom(sockRaw, buffer, 65536, 0, &sockAddr, &sAddrSize);
+            if (dataSize < 0)
+            {
+                printf("Recvfrom error on TCP socket, failed to get packets\n");
+                return 1;
+            }
+            else if (dataSize > 0)
+            {
+                ProcessPacket(buffer, dataSize);
+            }
+        }
+    }
+    else if (strcmp(argv[1], "ICMP") == 0)
+    {
+        // Create a raw socket for ICMP
+        sockIcmp = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+        if (sockIcmp < 0)
+        {
+            printf("ICMP Socket Error\n");
+            return 1;
+        }
+
+        while (true)
+        {
+            sAddrSize = sizeof sockAddr;
+            dataSize = recvfrom(sockIcmp, buffer, 65536, 0, &sockAddr, &sAddrSize);
+            if (dataSize < 0)
+            {
+                printf("Recvfrom error on ICMP socket, failed to get packets\n");
+                return 1;
+            }
+            else if (dataSize > 0)
+            {
+                ProcessPacket(buffer, dataSize);
+            }
+        }
+    }
+    else
+    {
+        printf("Error: Invalid argument, use TCP or ICMP\n");
         return 1;
     }
 
-    while (true)
-    {
-        sAddrSize = sizeof sockAddr;
-        // Receive a packet from the TCP socket
-        dataSize = recvfrom(sockRaw, buffer, 65536, 0, &sockAddr, &sAddrSize);
-        if (dataSize < 0)
-        {
-            printf("Recvfrom error on TCP socket, failed to get packets\n");
-            return 1;
-        }
-        else if (dataSize > 0)
-        {
-            // printf("Sniffing TCP packet...");
-            // Process the TCP packet
-            ProcessPacket(buffer, dataSize);
-        }
-
-        // Receive a packet from the ICMP socket
-        dataSize = recvfrom(sockIcmp, buffer, 65536, 0, &sockAddr, &sAddrSize);
-        if (dataSize < 0)
-        {
-            printf("Recvfrom error on ICMP socket, failed to get packets\n");
-            return 1;
-        }
-        else if (dataSize > 0)
-        {
-            // printf("Sniffing ICMP packet...");
-            // Process the ICMP packet
-            ProcessPacket(buffer, dataSize);
-        }
-    }
     close(sockRaw);
     close(sockIcmp);
     printf("Finished");
@@ -111,7 +125,7 @@ void ProcessPacket(unsigned char *buffer, int size)
         break;
     }
     // For checking
-    printf("TCP packets: %d ICMP packets: %d\r", tcpCount, icmpCount);
+    printf("TCP: %d ICMP: %d\r", tcpCount, icmpCount);
 }
 
 void printIpHeader(unsigned char *Buffer)
@@ -127,12 +141,11 @@ void printIpHeader(unsigned char *Buffer)
     fprintf(file, "\n");
     fprintf(file, "IP Header\n");
     fprintf(file, "   |-IP Version        : %d\n", (unsigned int)iph->version);
-    fprintf(file, "   |-IP Header Length  : %d DWORDS or %d Bytes\n", (unsigned int)iph->ihl,
-            ((unsigned int)(iph->ihl)) * 4);
-    fprintf(file, "   |-TTL      : %d\n", (unsigned int)iph->ttl);
-    fprintf(file, "   |-Protocol : %d\n", (unsigned int)iph->protocol);
-    fprintf(file, "   |-Source IP        : %s\n", inet_ntoa(source.sin_addr));
-    fprintf(file, "   |-Destination IP   : %s\n", inet_ntoa(dest.sin_addr));
+    fprintf(file, "   |-IP Header Length  : %d Bytes\n", ((unsigned int)(iph->ihl)) * 4);
+    fprintf(file, "   |-TTL               : %d\n", (unsigned int)iph->ttl);
+    fprintf(file, "   |-Protocol          : %d\n", (unsigned int)iph->protocol);
+    fprintf(file, "   |-Source IP         : %s\n", inet_ntoa(source.sin_addr));
+    fprintf(file, "   |-Destination IP    : %s\n", inet_ntoa(dest.sin_addr));
 }
 
 void printTcpPacket(unsigned char *Buffer, int Size)
@@ -152,9 +165,8 @@ void printTcpPacket(unsigned char *Buffer, int Size)
     fprintf(file, "TCP Header\n");
     fprintf(file, "   |-Source Port      : %u\n", ntohs(tcpHdr->source));
     fprintf(file, "   |-Destination Port : %u\n", ntohs(tcpHdr->dest));
-    fprintf(file, "   |-Header Length      : %d DWORDS or %d BYTES\n", (unsigned int)tcpHdr->doff,
-            (unsigned int)tcpHdr->doff * 4);
-    fprintf(file, "   |-Urgent Pointer : %d\n", tcpHdr->urg_ptr);
+    fprintf(file, "   |-Header Length    : %d BYTES\n", (unsigned int)tcpHdr->doff * 4);
+    fprintf(file, "   |-Urgent Pointer   : %d\n", tcpHdr->urg_ptr);
     fprintf(file, "\n");
     fprintf(file, "                        DATA Dump                         ");
     fprintf(file, "\n");
@@ -176,7 +188,7 @@ void printIcmpPacket(unsigned char *Buffer, int Size)
     unsigned short size;
 
     struct iphdr *iph = (struct iphdr *)Buffer;
-    size = iph->ihl * 4;
+    size = iph->ihl * 4; // Function to calculate the checksum for an input buffer
 
     struct icmphdr *icmph = (struct icmphdr *)(Buffer + size);
 

@@ -17,27 +17,7 @@
  *To spoof other protocols, you will need to replace the `IPPROTO_ICMP` constant with the appropriate protocol number and replace the `struct icmphdr` type
  */
 
-// Function to calculate the checksum for an input buffer
-unsigned short checksum(unsigned short *buf, int len)
-{
-    unsigned long sum = 0;
-
-    while (len > 1)
-    {
-        sum += *buf++;
-        len -= 2;
-    }
-
-    if (len == 1)
-    {
-        sum += *(unsigned char *)buf;
-    }
-
-    sum = (sum >> 16) + (sum & 0xffff);
-    sum += (sum >> 16);
-
-    return (unsigned short)(~sum);
-}
+unsigned short checksum(unsigned short *buf, int len);
 
 int main(int argc, char *argv[])
 {
@@ -114,4 +94,30 @@ int main(int argc, char *argv[])
     close(sockfd);
 
     return 0;
+}
+// Function to calculate the checksum for an input buffer
+unsigned short checksum(unsigned short *paddress, int len)
+{
+    int nleft = len;
+    int sum = 0;
+    unsigned short *w = paddress;
+    unsigned short answer = 0;
+
+    while (nleft > 1)
+    {
+        sum += *w++;
+        nleft -= 2;
+    }
+
+    if (nleft == 1)
+    {
+        *((unsigned char *)&answer) = *((unsigned char *)w);
+        sum += answer;
+    }
+
+    sum = (sum >> 16) + (sum & 0xffff);
+    sum += (sum >> 16);
+    answer = ~sum;
+
+    return answer;
 }

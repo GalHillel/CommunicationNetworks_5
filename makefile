@@ -10,7 +10,7 @@ SniffAndSpoof: SniffAndSpoof.c
 	gcc SniffAndSpoof.c -o SniffAndSpoof -lpcap
 
 Gateway.c: Gateway.c
-	gcc Gateway.c -o Gateway -lpcap
+	gcc Gateway.c -o Gateway
 
 clean:
 	rm -f *.o sniffer spoofer SniffAndSpoof Gateway
