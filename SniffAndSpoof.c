@@ -1,130 +1,141 @@
-
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <pcap.h>
-#include <pcap/pcap.h>
-#include <arpa/inet.h>
-#include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/ip.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 
-void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
-void spoof_reply(const u_char *packet, struct iphdr *ip, struct icmphdr *icmp);
-unsigned short in_cksum(unsigned short *buf, int length);
-void send_raw_ip_packet(struct iphdr *ip);
+#define true 1
+
+void ProcessPacket(unsigned char *, int);
+void SendSpoofedEchoReply(struct iphdr *, struct icmphdr *);
+unsigned short checksum(unsigned short *paddress, int len);
+
+struct sockaddr_in source, dest;
+
+int sockRaw;
+int i, icmpCount = 0;
 
 int main()
 {
+    int sAddrSize, dataSize;
+    struct sockaddr sockAddr;
 
-    printf("Waiting for ICMP packet...\n\n");
+    unsigned char *buffer = (unsigned char *)malloc(65536);
 
-    pcap_t *handle;
-    char errbuf[PCAP_ERRBUF_SIZE];
-    struct bpf_program fp;
-    char filter_exp[] = "icmp";
-    bpf_u_int32 net;
+    printf("Starting...\n");
 
-    handle = pcap_open_live("enp0s3", BUFSIZ, 1, 1000, errbuf);
+    // Create a raw socket for ICMP
+    sockRaw = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (sockRaw < 0)
+    {
+        printf("ICMP Socket Error\n");
+        return 1;
+    }
 
-    pcap_compile(handle, &fp, filter_exp, 0, net);
-    pcap_setfilter(handle, &fp);
-
-    pcap_loop(handle, -1, got_packet, NULL);
-    pcap_close(handle);
+    while (true)
+    {
+        sAddrSize = sizeof sockAddr;
+        // Receive a packet from the ICMP socket
+        dataSize = recvfrom(sockRaw, buffer, 65536, 0, &sockAddr, &sAddrSize);
+        if (dataSize < 0)
+        {
+            printf("Recvfrom error on ICMP socket, failed to get packets\n");
+            return 1;
+        }
+        else if (dataSize > 0)
+        {
+            // Process the ICMP packet
+            ProcessPacket(buffer, dataSize);
+        }
+    }
+    close(sockRaw);
+    printf("Finished");
     return 0;
 }
 
-void spoof_reply(const u_char *packet, struct iphdr *ip, struct icmphdr *icmp)
+void ProcessPacket(unsigned char *buffer, int size)
 {
+    struct iphdr *iph = (struct iphdr *)buffer;
+    struct icmphdr *icmph = (struct icmphdr *)(buffer + sizeof(struct iphdr));
 
-    char *data = (u_char *)packet + 14 + sizeof(struct iphdr) + sizeof(struct icmphdr);
-    int size_data = ntohs(ip->tot_len) - (sizeof(struct iphdr) + sizeof(struct icmphdr));
-    icmp->type = 0;
-    icmp->code = 0;
-
-    icmp->checksum = 0;
-    icmp->checksum = in_cksum((unsigned short *)icmp, sizeof(struct icmphdr) + size_data);
-
-    // 10.0.2.15 >>> 1.2.3.4
-    unsigned int temp = ip->saddr;
-    ip->saddr = ip->daddr;
-    ip->daddr = temp;
-    // 1.2.3.4>>>>10.0.2.15
-
-    send_raw_ip_packet(ip);
+    if (icmph->type == ICMP_ECHO)
+    {
+        icmpCount++;
+        printf("Received an ICMP echo request\n");
+        SendSpoofedEchoReply(iph, icmph);
+    }
+    printf("ICMP echo requests: %d\r", icmpCount);
 }
 
-void send_raw_ip_packet(struct iphdr *ip)
+void SendSpoofedEchoReply(struct iphdr *iph, struct icmphdr *icmph)
 {
-
-    struct sockaddr_in dest_info;
-    int enable = 1;
-
-    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-    setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &enable, sizeof(enable));
-
-    dest_info.sin_family = AF_INET;
-    dest_info.sin_addr.s_addr = ip->daddr;
-
-    printf("Sending spoofed IP packet ...\n");
-    sendto(sock, ip, ntohs(ip->tot_len), 0, (struct sockaddr *)&dest_info, sizeof(dest_info));
-    if (sendto(sock, ip, ntohs(ip->tot_len), 0, (struct sockaddr *)&dest_info, sizeof(dest_info)) < 0)
+    int sockSend = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (sockSend < 0)
     {
-        perror("PACKET NOT SENT\n");
+        printf("Error creating send socket\n");
         return;
     }
 
-    close(sock);
+    // Set the source IP address to be any IP address
+    struct sockaddr_in spoofedSource;
+    memset(&spoofedSource, 0, sizeof(spoofedSource));
+    spoofedSource.sin_family = AF_INET;
+    spoofedSource.sin_addr.s_addr = INADDR_ANY;
+    // Create the spoofed ICMP echo reply packet
+    unsigned char *spoofedPacket = (unsigned char *)malloc(sizeof(struct iphdr) + sizeof(struct icmphdr));
+    struct iphdr *spoofedIph = (struct iphdr *)spoofedPacket;
+    struct icmphdr *spoofedIcmph = (struct icmphdr *)(spoofedPacket + sizeof(struct iphdr));
+
+    // Set the IP header fields of the spoofed packet
+    spoofedIph->ihl = iph->ihl;
+    spoofedIph->version = iph->version;
+    spoofedIph->tos = iph->tos;
+    spoofedIph->tot_len = sizeof(struct iphdr) + sizeof(struct icmphdr);
+    spoofedIph->id = iph->id;
+    spoofedIph->frag_off = 0;
+    spoofedIph->ttl = iph->ttl;
+    spoofedIph->protocol = IPPROTO_ICMP;
+    spoofedIph->check = 0;
+    spoofedIph->saddr = INADDR_ANY;
+    spoofedIph->daddr = iph->saddr;
+    // Set the ICMP header fields of the spoofed packet
+    spoofedIcmph->type = ICMP_ECHOREPLY;
+    spoofedIcmph->code = 0;
+    spoofedIcmph->un.echo.id = icmph->un.echo.id;
+    spoofedIcmph->un.echo.sequence = icmph->un.echo.sequence;
+    spoofedIcmph->checksum = 0;
+    spoofedIcmph->checksum = checksum((unsigned short *)spoofedIcmph, sizeof(struct icmphdr));
+    // Send the spoofed packet
+    if (sendto(sockSend, spoofedPacket, sizeof(struct iphdr) + sizeof(struct icmphdr), 0, (struct sockaddr *)&spoofedSource, sizeof(spoofedSource)) < 0)
+    {
+        printf("Error sending spoofed packet\n");
+        return;
+    }
+    printf("Sent spoofed ICMP echo reply\n");
+    close(sockSend);
 }
 
-unsigned short in_cksum(unsigned short *buf, int length)
+unsigned short checksum(unsigned short *paddress, int len)
 {
-    unsigned short *w = buf;
-    int nleft = length;
     int sum = 0;
-    unsigned short temp = 0;
+    unsigned short *w = paddress;
+    unsigned short answer = 0;
 
-    while (nleft > 1)
+    for (; len > 1; len -= 2)
     {
         sum += *w++;
-        nleft -= 2;
     }
-
-    if (nleft == 1)
+    if (len == 1)
     {
-        *(u_char *)(temp) = *(u_char *)w;
-        sum += temp;
+        *((unsigned char *)&answer) = *((unsigned char *)w);
+        sum += answer;
     }
-
     sum = (sum >> 16) + (sum & 0xffff);
     sum += (sum >> 16);
-    return (unsigned short)(~sum);
-}
+    answer = ~sum;
 
-int counter = 0;
-
-void got_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
-{
-
-    struct sockaddr_in ip_src, ip_dst;
-    struct iphdr *ip = (struct iphdr *)(packet + 14);
-    struct icmphdr *icmp = (struct icmphdr *)(packet + 14 + sizeof(struct iphdr));
-
-    if (ip->saddr = inet_addr("10.0.2.15"))
-    {
-        if (icmp->type == 8)
-        {
-            printf("Got an ICMP packet!\n");
-            printf("-----Request-----\n");
-
-            ip_src.sin_addr.s_addr = ip->saddr;
-            printf("Src IP: %s \n", inet_ntoa(ip_src.sin_addr));
-
-            ip_dst.sin_addr.s_addr = ip->daddr;
-            printf("Dst IP: %s \n", inet_ntoa(ip_dst.sin_addr));
-
-            spoof_reply(packet, ip, icmp);
-        }
-    }
-
-    counter++;
+    return answer;
 }
