@@ -7,19 +7,19 @@
 #include <netinet/ip.h>
 #include <time.h>
 
-struct tcpHdr {
+struct tcpHdr
+{
     u_int16_t source;
     u_int16_t dest;
     u_int32_t seq;
     u_int32_t ack_seq;
-    u_int16_t doff:4;
-    u_int8_t cwr:1;
-    u_int8_t ece:1;
-    u_int8_t urg:1;
-    u_int8_t ack:1;
-    u_int8_t psh:1;
+    u_int16_t doff : 4;
+    u_int8_t cwr : 1;
+    u_int8_t ece : 1;
+    u_int8_t urg : 1;
+    u_int8_t ack : 1;
+    u_int8_t psh : 1;
 };
-
 
 void processPacket(u_char *args, const struct pcap_pkthdr *header, const u_char *buffer);
 
@@ -50,7 +50,6 @@ int main()
         printf("Error finding devices : %s", errBuf);
         exit(1);
     }
-    
 
     // Print the available devices
     printf("Available Devices:\n");

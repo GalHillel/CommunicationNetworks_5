@@ -1,138 +1,159 @@
+#include <pcap.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <netinet/ip_icmp.h>
-#include <netinet/ip.h>
-#include <sys/socket.h>
 #include <arpa/inet.h>
+#include <net/ethernet.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
 #include <unistd.h>
+#include <sys/socket.h>
 
-#define true 1
+#define BUF_SIZE 1024
+#define IP_HDRLEN sizeof(struct iphdr)
+#define ICMP_HDRLEN sizeof(struct icmphdr)
 
-void ProcessPacket(unsigned char *, int);
-void SendSpoofedEchoReply(struct iphdr *, struct icmphdr *);
-unsigned short checksum(unsigned short *paddress, int len);
+void processPacket(u_char *args, const struct pcap_pkthdr *header, const u_char *buffer);
+
+void spoofEchoReply(const u_char *buffer, int size);
+
+unsigned short checksum(unsigned short *buf, int len);
 
 struct sockaddr_in source, dest;
 
-int sockRaw;
-int i, icmpCount = 0;
-
 int main()
 {
-    int sAddrSize, dataSize;
-    struct sockaddr sockAddr;
+    pcap_if_t *pAllDevs, *device;
+    pcap_t *handle;
 
-    unsigned char *buffer = (unsigned char *)malloc(65536);
+    char errBuf[100], *pDevName, devs[100][100];
+    int count = 1, n;
 
-    printf("Starting...\n");
-
-    // Create a raw socket for ICMP
-    sockRaw = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (sockRaw < 0)
+    // First get the list of available devices
+    printf("Finding available devices ... \n");
+    if (pcap_findalldevs(&pAllDevs, errBuf))
     {
-        printf("ICMP Socket Error\n");
-        return 1;
+        printf("Error finding devices : %s", errBuf);
+        exit(1);
     }
 
-    while (true)
+    // Print the available devices
+    printf("Available Devices:\n");
+    for (device = pAllDevs; device != NULL; device = device->next)
     {
-        sAddrSize = sizeof sockAddr;
-        // Receive a packet from the ICMP socket
-        dataSize = recvfrom(sockRaw, buffer, 65536, 0, &sockAddr, &sAddrSize);
-        if (dataSize < 0)
+        printf("%d. %s - %s\n", count, device->name, device->description);
+        if (device->name != NULL)
         {
-            printf("Recvfrom error on ICMP socket, failed to get packets\n");
-            return 1;
+            strcpy(devs[count], device->name);
         }
-        else if (dataSize > 0)
-        {
-            // Process the ICMP packet
-            ProcessPacket(buffer, dataSize);
-        }
+        count++;
     }
-    close(sockRaw);
-    printf("Finished");
+
+    // Ask user which device to sniff
+    printf("Enter the number of the device you want to sniff : ");
+    scanf("%d", &n);
+    pDevName = devs[n];
+
+    // Open the device for sniffing
+    printf("Opening device %s for sniffing ... ", pDevName);
+    handle = pcap_open_live(pDevName, 65536, 1, 0, errBuf);
+
+    if (handle == NULL)
+    {
+        fprintf(stderr, "Couldn't open device %s : %s\n", pDevName, errBuf);
+        exit(1);
+    }
+    printf("Done\n");
+
+    // Put the device in sniff loop
+    pcap_loop(handle, -1, processPacket, NULL);
+
+    pcap_close(handle);
+
     return 0;
 }
 
-void ProcessPacket(unsigned char *buffer, int size)
+void processPacket(u_char *args, const struct pcap_pkthdr *header, const u_char *buffer)
 {
-    struct iphdr *iph = (struct iphdr *)buffer;
-    struct icmphdr *icmph = (struct icmphdr *)(buffer + sizeof(struct iphdr));
+    int size = header->len;
 
-    if (icmph->type == ICMP_ECHO)
+    // Get the IP Header part of this packet , excluding the ethernet header
+    struct iphdr *iph = (struct iphdr *)(buffer + sizeof(struct ethhdr));
+    struct icmphdr *icmph = (struct icmphdr *)(buffer + IP_HDRLEN + sizeof(struct ethhdr));
+
+    if (icmph->type == 8) // Check the Protocol and do accordingly...
     {
-        icmpCount++;
-        printf("Received an ICMP echo request\n");
-        SendSpoofedEchoReply(iph, icmph);
+        printf("Received ICMP Echo Request...\n");
+        // Create a raw socket
+        int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+        if (sockfd < 0)
+        {
+            perror("Error creating socket");
+        }
+        // Set the IP_HDRINCL option to include the IP header
+        int optval = 1;
+        setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL, &optval, sizeof(optval));
+
+        // Create an ICMP packet
+        char packet[BUF_SIZE];
+        struct iphdr *ip_hdr = (struct iphdr *)packet;
+        struct icmphdr *icmp_hdr = (struct icmphdr *)(packet + IP_HDRLEN);
+
+        // Fill in the IP header
+        ip_hdr->daddr = iph->saddr;
+        ip_hdr->saddr = iph->daddr;
+        ip_hdr->ihl = iph->ihl;
+        ip_hdr->check = iph->check;
+        ip_hdr->id = iph->id;
+        ip_hdr->version = iph->version;
+        ip_hdr->frag_off = iph->frag_off;
+        ip_hdr->protocol = iph->protocol;
+        ip_hdr->tos = iph->tos;
+        ip_hdr->ttl = iph->ttl;
+        ip_hdr->tot_len = htons(sizeof(ip_hdr) + sizeof(struct icmphdr));
+        // ip_hdr->check = checksum((unsigned short *)packet, IP_HDRLEN);
+
+        // Fill in the ICMP header
+        icmp_hdr->type = ICMP_ECHOREPLY;
+        icmp_hdr->code = icmph->code;
+        icmp_hdr->un.echo.id = icmph->un.echo.id;
+        icmp_hdr->un.echo.sequence = icmph->un.echo.sequence;
+        icmp_hdr->checksum = icmph->checksum;
+        // icmp_hdr->checksum = checksum((unsigned short *) icmp_hdr, ICMP_HDRLEN);
+
+        // Send the packet
+        if (sendto(sockfd, packet, IP_HDRLEN + ICMP_HDRLEN, 0, (struct sockaddr *)&dest, sizeof(dest)) < 0)
+        {
+            perror("Error sending packet");
+        }
+        else
+        {
+            printf("Sent ICMP Echo Reply.\n");
+        }
+        close(sockfd);
     }
-    printf("ICMP echo requests: %d\r", icmpCount);
 }
 
-void SendSpoofedEchoReply(struct iphdr *iph, struct icmphdr *icmph)
-{
-    int sockSend = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (sockSend < 0)
-    {
-        printf("Error creating send socket\n");
-        return;
-    }
-
-    // Set the source IP address to be any IP address
-    struct sockaddr_in spoofedSource;
-    memset(&spoofedSource, 0, sizeof(spoofedSource));
-    spoofedSource.sin_family = AF_INET;
-    spoofedSource.sin_addr.s_addr = INADDR_ANY;
-    // Create the spoofed ICMP echo reply packet
-    unsigned char *spoofedPacket = (unsigned char *)malloc(sizeof(struct iphdr) + sizeof(struct icmphdr));
-    struct iphdr *spoofedIph = (struct iphdr *)spoofedPacket;
-    struct icmphdr *spoofedIcmph = (struct icmphdr *)(spoofedPacket + sizeof(struct iphdr));
-
-    // Set the IP header fields of the spoofed packet
-    spoofedIph->ihl = iph->ihl;
-    spoofedIph->version = iph->version;
-    spoofedIph->tos = iph->tos;
-    spoofedIph->tot_len = sizeof(struct iphdr) + sizeof(struct icmphdr);
-    spoofedIph->id = iph->id;
-    spoofedIph->frag_off = 0;
-    spoofedIph->ttl = iph->ttl;
-    spoofedIph->protocol = IPPROTO_ICMP;
-    spoofedIph->check = 0;
-    spoofedIph->saddr = INADDR_ANY;
-    spoofedIph->daddr = iph->saddr;
-    // Set the ICMP header fields of the spoofed packet
-    spoofedIcmph->type = ICMP_ECHOREPLY;
-    spoofedIcmph->code = 0;
-    spoofedIcmph->un.echo.id = icmph->un.echo.id;
-    spoofedIcmph->un.echo.sequence = icmph->un.echo.sequence;
-    spoofedIcmph->checksum = 0;
-    spoofedIcmph->checksum = checksum((unsigned short *)spoofedIcmph, sizeof(struct icmphdr));
-    // Send the spoofed packet
-    if (sendto(sockSend, spoofedPacket, sizeof(struct iphdr) + sizeof(struct icmphdr), 0, (struct sockaddr *)&spoofedSource, sizeof(spoofedSource)) < 0)
-    {
-        printf("Error sending spoofed packet\n");
-        return;
-    }
-    printf("Sent spoofed ICMP echo reply\n");
-    close(sockSend);
-}
-
+// Function to calculate the checksum for an input buffer
 unsigned short checksum(unsigned short *paddress, int len)
 {
+    int nleft = len;
     int sum = 0;
     unsigned short *w = paddress;
     unsigned short answer = 0;
 
-    for (; len > 1; len -= 2)
+    while (nleft > 1)
     {
         sum += *w++;
+        nleft -= 2;
     }
-    if (len == 1)
+
+    if (nleft == 1)
     {
         *((unsigned char *)&answer) = *((unsigned char *)w);
         sum += answer;
     }
+
     sum = (sum >> 16) + (sum & 0xffff);
     sum += (sum >> 16);
     answer = ~sum;

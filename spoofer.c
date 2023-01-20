@@ -95,6 +95,7 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+
 // Function to calculate the checksum for an input buffer
 unsigned short checksum(unsigned short *paddress, int len)
 {
