@@ -17,8 +17,6 @@
  * The processPacket function checks the IP protocol of the captured packet, and if it is TCP,
  * it calls the gotPacket function to process the packet.
  * The gotPacket function prints data from the packet to a text file and to the console.
- * The program uses several helper functions such as printIpHeader,
- * printEthernetHeader and printData to extract and print relevant data from the packet.
  * The program continues to capture and process packets in a loop until the program is closed.
  */
 
@@ -94,7 +92,7 @@ int main()
     }
     printf("Done\n");
 
-    pFile = fopen("211696521_211696521.txt", "w");
+    pFile = fopen("211696521_928596978.txt", "w");
     if (pFile == NULL)
     {
         printf("Unable to create file.");
