@@ -9,6 +9,19 @@
 #include <unistd.h>
 #include <netinet/ip_icmp.h>
 
+/**
+ *This code is a packet sniffer that captures ICMP packets, specifically ICMP echo request packets,
+ *and sends an ICMP echo reply packet in response.
+ *The main function starts by finding all available network devices and printing them to the console.
+ *The user is then prompted to select one of the devices for sniffing.
+ *The selected device is then opened and a filter is applied to capture only ICMP packets.
+ *The pcap_loop function is then used to continuously capture packets and pass them to the processPacket function for processing.
+ *The processPacket function checks if the captured packet is an ICMP echo request packet, and if it is,
+ *it prints a message to the console and creates an ICMP echo reply packet.
+ *The reply packet is then sent using the sendSpoof function.
+ *The program continues to capture and process packets in a loop until the program is closed.
+ */
+
 unsigned short checksum(unsigned short *pAddress, int len);
 
 void sendSpoof(struct iphdr *pIpHeader);

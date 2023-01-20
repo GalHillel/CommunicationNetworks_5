@@ -7,6 +7,21 @@
 #include <netinet/ip.h>
 #include <time.h>
 
+/**
+ * This program captures and analyzes TCP packets on a network.
+ * It uses the pcap library to capture packets from a network device.
+ * The main function starts by finding all available network devices and printing them to the console.
+ * The user is then prompted to select one of the devices for sniffing.
+ * The selected device is then opened and a pcap_loop function is used to continuously capture packets
+ * and pass them to the processPacket function for processing.
+ * The processPacket function checks the IP protocol of the captured packet, and if it is TCP,
+ * it calls the gotPacket function to process the packet.
+ * The gotPacket function prints data from the packet to a text file and to the console.
+ * The program uses several helper functions such as printIpHeader,
+ * printEthernetHeader and printData to extract and print relevant data from the packet.
+ * The program continues to capture and process packets in a loop until the program is closed.
+ */
+
 struct tcpHdr
 {
     u_int16_t source;
@@ -98,7 +113,7 @@ void processPacket(u_char *args, const struct pcap_pkthdr *header, const u_char 
     // Get the IP Header part of this packet , excluding the ethernet header
     struct iphdr *iph = (struct iphdr *)(buffer + sizeof(struct ethhdr));
 
-    if (iph->protocol == 6) // Check the Protocol and do accordingly...
+    if (iph->protocol == 6) // Check the Protocol
     {
         tcp++;
         gotPacket(buffer, size);
@@ -205,7 +220,7 @@ void printData(const u_char *data, int Size)
 {
     for (i = 0; i < Size; i++)
     {
-        if (i != 0 && i % 16 == 0) // if one line of hex printing is complete...
+        if (i != 0 && i % 16 == 0)
         {
             fprintf(pFile, "         ");
             for (j = i - 16; j < i; j++)
@@ -214,7 +229,7 @@ void printData(const u_char *data, int Size)
                     fprintf(pFile, "%c", (unsigned char)data[j]);
 
                 else
-                    fprintf(pFile, "."); // otherwise print a dot
+                    fprintf(pFile, ".");
             }
             fprintf(pFile, "\n");
         }
@@ -223,11 +238,11 @@ void printData(const u_char *data, int Size)
             fprintf(pFile, "   ");
         fprintf(pFile, " %02X", (unsigned int)data[i]);
 
-        if (i == Size - 1) // print the last spaces
+        if (i == Size - 1)
         {
             for (j = 0; j < 15 - i % 16; j++)
             {
-                fprintf(pFile, "   "); // extra spaces
+                fprintf(pFile, "   ");
             }
 
             fprintf(pFile, "         ");
